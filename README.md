@@ -83,6 +83,22 @@ Configure it via Meteor settings:
 meteor run --settings settings.json
 ```
 
+## Setup
+
+
+### Caching
+In your code, for the collections you want to cache (which should really be most of your data):
+`collection.startCaching()`
+
+**Note:** If you don't cache, you will still be hitting the DB like crazy like in the previous redis-oplog
+
+### Disabling Redis
+1. For collections for hiwhc you want to skip redis updates entirely (but you can still cache). This is useful for data that is linked to the user only (in our case analytics collection)
+`collection.disableRedis()`
+
+2. For specific mutations
+`collection.[update,insert,remove,upsert](<selector>,<modifier>,{pushToRedis:false})`
+
 ## Notes
 
 To make sure it is compatible with other packages which extend the `Mongo.Collection` methods, make sure you go to `.meteor/packages`
