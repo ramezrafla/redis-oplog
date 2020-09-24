@@ -149,6 +149,6 @@ Everywhere else, major code cleanups and removing unused helpers in various `/li
 
 ## Contributors
 
-This project exists thanks to all the people who contribute. [[Contribute]](CONTRIBUTING.md).
+This project exists thanks to all the people who contributed (to the original redis-oplog).
 <a href="graphs/contributors"><img src="https://opencollective.com/redis-oplog/contributors.svg?width=890" /></a>
 
