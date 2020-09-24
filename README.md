@@ -85,6 +85,8 @@ meteor run --settings settings.json
 
 ## Setup
 
+**Note:** All setup is server-side only, the following methods are not exposed client-side (nor should they be)
+
 
 ### Caching
 In your code, for the collections you want to cache (which should really be most of your data):
