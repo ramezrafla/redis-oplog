@@ -33,7 +33,7 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 
 ## Ideas for future improvements
 - Create LUA script for Redis to hold recent history of changes to get around rare race-conditions
-
+- Support external redis publisher -- not ready yet for that. I kept the options there but a few things were removed which would break it. Contact me if you need help or are interested in PR
 
 ## Installation
 
@@ -97,6 +97,18 @@ RedisOplog does not work with _insecure_ package, which is used for bootstrappin
 ## Premium Support
 
 We are here to help. Feel free to contact us at ramez@classroomapp.com for this clone or contact@cultofcoders.com for the original version
+
+## For Developers
+
+The major areas that have seen changes from the original redis-oplog
+- `mongo/extendMongoCollection`: Added support for caching
+- `mongo/Mutator`: Support for caching, removed sending the whole doc for the removed `protectRaceConditions:false`, check which fields have REALLY changed and only send those, build inserts locally
+- `mongo/observeChanges`: We now call on the cache to get the data
+- `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
+- `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
+- `redis/WatchManger` and `redis/CustomPublish`: New feature to allow server-server data transfers
+
+Everywhere else, code cleanups
 
 ## Contributors
 
