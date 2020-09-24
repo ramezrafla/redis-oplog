@@ -125,12 +125,12 @@ We are here to help. Feel free to contact us at ramez@classroomapp.com for this 
 The major areas that have seen changes from the original redis-oplog
 - `mongo/extendMongoCollection`: Added support for caching
 - `mongo/Mutator`: Support for caching, removed sending the whole doc for the removed `protectRaceConditions:false`, check which fields have REALLY changed and only send those, build inserts locally
-- `mongo/observeChanges`: We now call on the cache to get the data
+- `mongo/ObserveMultiplex`: We now call on the cache to get the data, no more local caching of any data, uses projector to send the right fields down
 - `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
 - `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
 - `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers
 
-Everywhere else, code cleanups
+Everywhere else, major code cleanups and removing unused helpers in various `/lib` folders
 
 ## Contributors
 
