@@ -1,9 +1,9 @@
-# Welcome to Redis Oplog
+# Welcome to the Scalable Redis Oplog
+**Note**: This a clone of the original [redis-oplog](https://github.com/cult-of-coders/redis-oplog) to make it scalable
 
 
 ### LICENSE: MIT
 
-# This a clone of the original redis-oplog found [here](https://github.com/cult-of-coders/redis-oplog)
 
 ## First a Word of Thanks
 
@@ -34,6 +34,7 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 ## Ideas for future improvements
 - Create LUA script for Redis to hold recent history of changes to get around rare race-conditions
 - Support external redis publisher -- not ready yet for that. I kept the options there but a few things were removed which would break it. Contact me if you need help or are interested in PR
+- Create formal Meteor package if there is interest by the community
 
 ## Installation
 
@@ -42,13 +43,13 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 meteor add disable-oplog
 ```
 
-In your `<root>\packages` folder
+In your `<root>/packages` folder
 ```bash
 git clone https://github.com/ramezrafla/redis-oplog.git
 meteor add zegenie:redis-oplog
 ```
 
-**Important**: Make sure zegenie:redis-oplog and disable-oplog are at the top of your meteor/.packages file
+**Important**: Make sure `zegenie:redis-oplog` is at the top of your `.meteor/packages` file
 
 Configure it via Meteor settings:
 
@@ -96,7 +97,7 @@ In your code, for the collections you want to cache (which should really be most
 **Note:** If you don't cache, you will still be hitting the DB like crazy like in the previous redis-oplog
 
 ### Disabling Redis
-1. For collections for hiwhc you want to skip redis updates entirely (but you can still cache). This is useful for data that is linked to the user only (in our case analytics collection)
+1. For collections for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is linked to the user only (in our case analytics collection)
 
 `collection.disableRedis()`
 
@@ -127,7 +128,7 @@ The major areas that have seen changes from the original redis-oplog
 - `mongo/observeChanges`: We now call on the cache to get the data
 - `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
 - `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
-- `redis/WatchManger` and `redis/CustomPublish`: New feature to allow server-server data transfers
+- `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers
 
 Everywhere else, code cleanups
 
