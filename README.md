@@ -94,7 +94,22 @@ In your code, for the collections you want to cache (which should really be most
 
 `collection.startCaching()`
 
-**Note:** If you don't cache, you will still be hitting the DB like crazy like in the previous redis-oplog
+To get hits vs misses you can call the following method from your browser console in **development**
+
+`Meteor.call('__getCollectionStats','myCollectionName',console.log)`
+
+If you want to do this in production, copy the code at the bottom of `/lib/init.js`
+
+This is sample data from our production servers for the `users` collection -- **99% hits!!**:
+```
+{
+  hitRatio: 98.85108236349966
+  hits: 6143833
+  misses: 71408
+}
+```
+
+**Note:** If you don't cache, you will still be hitting the DB like in the previous redis-oplog, but slightly better as we strive to use IDs more often in selectors
 
 ### Disabling Redis
 1. For collections for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is linked to the user only (in our case analytics collection)
