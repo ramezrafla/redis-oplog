@@ -14,7 +14,7 @@ We were facing three major issues with the original redis-oplog
 
 1. We faced major issues with redis-oplog in production on AWS Elatic-Beakstalk, out-of-memory & disconnects from redis. After some research we found that redis-oplog duplicates data (2x for each observer) and re-duplicates for each new observer (even if it's the same collection and same data)
 2. DB hits were killing us, each update required multiple hits to update the data then pull it again. This is also another major negative -- not scalable and slow. The approach of keeping pulling from DB to get around the very rare race condition is unsustainable.
-3. We want to read from MongoDB secondaries. The only way out with the current redis-oplog is (very) costly sharding.
+3. We want to read from MongoDB secondaries to scale faster. The only to properly scale with the current redis-oplog is (very) costly sharding.
 
 In addition, the code was becoming complex and hard to understand. This is owing to many hands getting involved and its aim to cover as many use cases as possible. **Such an important building-block for us had to be easily maintainable**.
 
