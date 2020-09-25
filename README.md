@@ -28,8 +28,16 @@ This version of redis-oplog is more streamlined (you can see this with the reduc
 - During `remove`, we send the ids to be removed to other instances
 - We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
 - Servers can now send data to each other's cache directly via a new feature called 'watchers' (will be documented soon)
+- Optimized data sent via redis, only what REALLY changed 
 
 In other words, this is not a Swiss-Army knife, it is made for a very specific purpose: **scalable read-intensive real-time application**
+
+## Results
+
+- We reduced the number of meteor instances by 3x
+- No more out of memory and CPU spikes in Meteor -- stabler loads
+- Faster updates (including to client) given fewer DB hits and less data sent to redis (and hence, the other meteor instances' load is reduced)
+- We substantially reduced the load on our DB instances -- from 80% to 7% on primary (secondaries went up a bit, which is fine as they were idle anyway)
 
 ## Ideas for future improvements
 - Create LUA script for Redis to hold recent history of changes to get around rare race-conditions
