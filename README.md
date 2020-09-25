@@ -14,26 +14,26 @@ We were facing three major issues with the original redis-oplog
 
 1. We faced major issues with redis-oplog in production on AWS Elatic-Beakstalk, out-of-memory & disconnects from redis. After some research we found that redis-oplog duplicates data (2x for each observer) and re-duplicates for each new observer (even if it's the same collection and same data)
 2. DB hits were killing us, each update required multiple hits to update the data then pull it again. This is also another major negative -- not scalable and slow. The approach of keeping pulling from DB to get around the very rare race condition is unsustainable.
-3. We want to read from MongoDB secondaries to scale faster. The only to properly scale with the current redis-oplog is (very) costly sharding.
+3. We want to read from MongoDB secondaries to scale faster. The only way to properly scale with the current redis-oplog is (very) costly sharding.
 
-In addition, the code was becoming complex and hard to understand. This is owing to many hands getting involved and its aim to cover as many use cases as possible. **Such an important building-block for us had to be easily maintainable**.
+In addition, the code was becoming complex and hard to understand (which dead code and need for optimization). This is owing to many hands getting involved and its aim to cover as many use cases as possible. **Such an important building-block for us had to be easily maintainable**.
 
 ## What we did
 This version of redis-oplog is more streamlined (you can see this with the reduced number of settings):
 
-- Uses a single central timed cache at the collection-level, which is also the same place get data from when you run `findOne` / `find` -- so full data consistency within the app
-- Uses redis to transmit changes to other instance caches -- consistency again
+- Uses a single central timed cache at the collection-level, which is also the same place that provides data from when you run `findOne` / `find` -- so full data consistency within the app
+- Uses redis to transmit changed fields (we do an actual diff) to other instance caches -- consistency again
 - During `update`, we mutate the cache and send the changed fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (and is very slow)
-- During `insert`, we build the doc and send it to DB and other instances
-- During `remove`, we send the ids to be removed to the DB and other instanes
+- During `insert`, we build the doc and send it via redis to other instances
+- During `remove`, we send the ids to be removed and send to other instances
 - We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
 - Servers can now send data to each other's cache directly via a new feature called 'watchers' (will be documented soon)
 
-In other words, this is not a Swiss-Army knife, it is made for a very specific purpose.
+In other words, this is not a Swiss-Army knife, it is made for a very specific purpose: **scalable read-intensive real-time application**
 
 ## Ideas for future improvements
 - Create LUA script for Redis to hold recent history of changes to get around rare race-conditions
-- Support external redis publisher -- not ready yet for that. I kept the options there but a few things were removed which would break it. Contact me if you need help or are interested in PR
+- Support external redis publisher [`oplogtoredis`](https://github.com/tulip/oplogtoredis) -- not ready yet for that. I kept the options there but a few things were removed which would break it. Contact me if you need help or are interested in PR. This WILL be done at some point as it is the next level of scalability.
 - Create formal Meteor package if there is interest by the community
 
 ## Installation
@@ -112,7 +112,7 @@ This is sample data from our production servers for the `users` collection -- **
 **Note:** If you don't cache, you will still be hitting the DB like in the previous redis-oplog, but slightly better as we strive to use IDs more often in selectors
 
 ### Disabling Redis
-1. For collections for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is linked to the user only (in our case analytics collection)
+1. For collections for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection)
 
 `collection.disableRedis()`
 
