@@ -25,7 +25,7 @@ This version of redis-oplog is more streamlined (you can see this with the reduc
 - Uses redis to transmit changed fields (we do an actual diff) to other instance caches -- consistency again
 - During `update`, we mutate the cache and send the changed fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (and is very slow)
 - During `insert`, we build the doc and send it via redis to other instances
-- During `remove`, we send the ids to be removed and send to other instances
+- During `remove`, we send the ids to be removed to other instances
 - We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
 - Servers can now send data to each other's cache directly via a new feature called 'watchers' (will be documented soon)
 
