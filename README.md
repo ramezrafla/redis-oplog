@@ -81,23 +81,33 @@ Configure it via Meteor settings:
         "optimistic": true, // Does not do a sync processing on the diffs. But it works by default with client-side mutations.
         "pushToRedis": true // Pushes to redis the changes by default
     },
-    "cacheTimer": 2700000, // Cache timer, any data not accessed within that time is removed -- our default is 45 mins
+    "cacheTimeout": 2700000, // Cache timeout, any data not accessed within that time is removed -- our default is 45 mins
+    "cacheTimer": 600000, // at what interval do we check the cache for timeouts -- controls the granularity of cacheTimeout
     "debug": false, // Will show timestamp and activity of redis-oplog
   }
 }
 ```
 
-
 ```bash
 meteor run --settings settings.json
 ```
 
-## Setup
+### A note about cacheTimeout and cacheTimer
 
-**Note:** All setup is server-side only, the following methods are not exposed client-side (nor should they be)
+- `cacheTimeout` (ms) is the max time a document is unaccessed before it is deleted - default 45 minutes
+- `cacheTimer` (ms) sets the delay in the `setTimeout` timer that checks cache documents' last access delay - default 10 minutes
+
+In other words, your worst delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. Default is 5 minutes.
+
+Each project is different, so watch your memory usage to make sure your `cacheTimeout` does not bust your heap memory. It's a tradeoff, db hits vs meteor instance memory. Regardless, you are using way less memory than the original redis-oplog as there is no duplication of docs (exception: if you have large docs, see notes at end of this doc)
+
+## Setup & basic usage
+
+**Note:** All setup is done server-side only, the following methods are not exposed client-side (nor should they be)
 
 
 ### Caching
+
 In your code, for the collections you want to cache (which should really be most of your data):
 
 `collection.startCaching()`
@@ -120,24 +130,35 @@ This is sample data from our production servers for the `users` collection -- **
 **Note:** If you don't cache, you will still be hitting the DB like in the previous redis-oplog, but slightly better as we strive to use IDs more often in selectors
 
 ### Disabling Redis
-1. For collections for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection)
 
-`collection.disableRedis()`
+1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
+2. For specific mutations: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
 
-2. For specific mutations
+### API
 
-`collection.[update,insert,remove,upsert](<selector>,<modifier>,{pushToRedis:false})`
+- `collection.startCaching(timeout)`: Sets up the database to start caching all documents that are seen through any DB `findOne`, `find`, `insert` and `update`. If `timeout` is provided it overrides `cacheTimeout` from settings
+- `collection.disableRedis()`:  No updates are sent to redis from this collection **ever**, even if you set `{pushToRedis:true}`
+- `collection.getCache(id):<Object>`: Avoid, use `findOne` if you can, as this function clones the entire doc
+- `collection.hasCache(id):Boolean`
+- `collection.setCache(doc)`: Use carefully, as it overrides the entire doc
+- `collection.deleteCache(id or doc)`
+- `collection.clearCache(selector)`: Removes from cache all docs that match selector; if selector is empty clears the whole cache
+- `collection.mergeDocs(docs:Array.<Objects>)`: if a doc is not in the cache we load it into the cache, if it is in the cache we **override** it in passed docs array (i.e. cache always **prevails**). 
+- `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise gets from DB
 
-## Notes
 
-To make sure it is compatible with other packages which extend the `Mongo.Collection` methods, make sure you go to `.meteor/packages`
+## Important Notes - MUST READ
+
+- To make sure it is compatible with other packages which extend the `Mongo.Collection` methods, make sure you go to `.meteor/packages`
 and put `zegenie:redis-oplog` as the first option.
+- RedisOplog does not work with _insecure_ package.
+- Updates with **positional selectors** have to be done on the DB for now until this [PR](https://github.com/meteor/meteor/pull/9721) is pulled in. Just keep this in mind in terms of your db hits.
+- This package **does not support ordered** observers. You **cannot** use `addedBefore`, `changedBefore` etc. This behavior is unlikely to change as it requires quite a bit of work and is not useful for the original developer. Frankly, you should use `{order:2}` in your doc and order at run-time.
+- If you have **large documents**, caching could result in memory issues as we store the full documet. You may need to tweak `cacheTimeout`. In this case you should have a separate collection for these big fields and prevent caching on it / have shorter timeout (excluding fields in cache will result in undue complexity for a rare use case)
 
-RedisOplog does not work with _insecure_ package, which is used for bootstrapping your app.
+## OplogToRedis
 
-### Events for Meteor (+ Redis Oplog, Grapher and GraphQL/Apollo)
-
-*   Meteor Night 2018 Slide for the original redis-oplog: [Arguments for Meteor](https://drive.google.com/file/d/1Tx9vO-XezO3DI2uAYalXPvhJ-Avqc4-q/view) - Theodor Diaconu, CEO of Cult of Coders: “Redis Oplog, Grapher, and Apollo Live.
+The GO package [oplogtoredis](https://github.com/tulip/oplogtoredis) is an amazing tool which listens to the DB oplog and sends change to redis. This way you are always up to date (and you lower your stress on your Meteor instances by omitting sends). There is a problem, however. OplogToRedis only sends the fields that have changed, not their new value. We have to pull from the DB those changed fields. This negates our original intent to reduce db hits. Hopefully we'll have some updates on this soon.
 
 ## Premium Support
 
@@ -147,13 +168,13 @@ We are here to help. Feel free to contact us at ramez@classroomapp.com for this 
 
 The major areas that have seen changes from the original redis-oplog
 - `mongo/extendMongoCollection`: Added support for caching
-- `mongo/Mutator`: Support for caching, removed sending the whole doc for the removed `protectRaceConditions:false`, check which fields have REALLY changed and only send those, build inserts locally
+- `mongo/Mutator`: Support for caching, removed sending the whole doc for the deprecated option `protectRaceConditions`, check which fields have REALLY changed and only send those, build inserts locally
 - `mongo/ObserveMultiplex`: We now call on the cache to get the data, no more local caching of any data, uses projector to send the right fields down
 - `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
 - `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
-- `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers
+- `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers (to be documented later)
 
-Everywhere else, major code cleanups and removing unused helpers in various `/lib` folders
+Everywhere else, major code cleanups and removing of unused helpers in various `/lib` folders
 
 ## Contributors
 
