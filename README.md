@@ -134,7 +134,7 @@ This is sample data from our production servers for the `users` collection -- **
 ### Disabling Redis
 
 1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
-2. For specific **mutations** but the collection sends to redis by default: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
+2. For specific **mutations**: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
 
 ### API
 
@@ -143,7 +143,7 @@ This is sample data from our production servers for the `users` collection -- **
 - `collection.getCache(id):<Object>`: Avoid, use `findOne` if you can, as this function clones the entire doc
 - `collection.hasCache(id):Boolean`
 - `collection.setCache(doc)`: Use carefully, as it overrides the entire doc
-- `collection.deleteCache(id or doc)`: Again, avoid if you can. User `collection.remove` instead
+- `collection.deleteCache(id or doc)`: Again, avoid if you can. Use `collection.remove` instead
 - `collection.clearCache(selector)`: Removes from cache all docs that match selector; if selector is empty clears the whole cache
 - `collection.mergeDocs(docs:Array.<Objects>)`: if a doc is not in the cache we load it INTO the cache, if it is in the cache we **override** it in passed docs array (i.e. cache always **prevails** otherwise pull from DB). 
 - `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise gets from DB
