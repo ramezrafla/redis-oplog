@@ -97,13 +97,16 @@ meteor run --settings settings.json
 - `cacheTimeout` (ms) is the max time a document is unaccessed before it is deleted - default 45 minutes
 - `cacheTimer` (ms) sets the delay in the `setTimeout` timer that checks cache documents' last access delay - default 10 minutes
 
-In other words, your worst delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. Default is 5 minutes.
+In other words, your worst delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. 
 
-Each project is different, so watch your memory usage to make sure your `cacheTimeout` does not bust your heap memory. It's a tradeoff, db hits vs meteor instance memory. Regardless, you are using way less memory than the original redis-oplog as there is no duplication of docs (exception: if you have large docs, see notes at end of this doc)
+Each project is different, so watch your memory usage to make sure your `cacheTimeout` does not bust your heap memory. It's a tradeoff, db hits vs meteor instance memory. Regardless, you are using way less memory than the original redis-oplog as there is no duplication of docs (exception: if you have large infrequently used docs / fields, see notes at end of this doc).
 
 ## Setup & basic usage
 
-**Note:** All setup is done server-side only, the following methods are not exposed client-side (nor should they be)
+**Notes:** 
+
+1. All setup is done server-side only, the following methods are not exposed client-side (nor should they be)
+2. Please look at the API section below
 
 
 ### Caching
@@ -116,7 +119,7 @@ To get hits vs misses you can call the following method from your browser consol
 
 `Meteor.call('__getCollectionStats','myCollectionName',console.log)`
 
-If you want to do this in production, copy the code at the bottom of `/lib/init.js`
+If you want to do this in production, copy the code at the bottom of `/lib/init.js` and add appropriate access controls.
 
 This is sample data from our production servers for the `users` collection -- **99% hits!!**:
 ```
