@@ -17,27 +17,15 @@ if (Meteor.isServer) {
 
 const Standard = new Mongo.Collection('test_redis_collection');
 const Channel = new Mongo.Collection('test_redis_collection_channel');
-const Namespace = new Mongo.Collection('test_redis_collection_namespace');
 
-const RaceConditionProne = new Mongo.Collection('test_redis_race_condition_prone');
-
-const Collections = { Standard, Channel, Namespace, RaceConditionProne };
+const Collections = { Standard, Channel };
 const opts = {
   Standard: {},
-  RaceConditionProne: {},
   Channel: { channel: 'some_channel' },
-  Namespace: { namespace: 'some_namespace' },
 };
 const config = {
-  RaceConditionProne: {
-    suffix: 'race-condition-prone',
-  },
   Standard: { suffix: 'standard', channel: 'test_redis_collection' },
   Channel: { suffix: 'channeled', channel: 'some_channel' },
-  Namespace: {
-    suffix: 'namespaced',
-    channel: 'some_namespace::test_redis_collection_namespace',
-  },
 };
 
 export { Collections, opts, config };
