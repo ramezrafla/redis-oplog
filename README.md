@@ -81,7 +81,7 @@ Configure it via Meteor settings:
         "optimistic": true, // Does not do a sync processing on the diffs. But it works by default with client-side mutations.
         "pushToRedis": true // Pushes to redis the changes by default
     },
-    "cacheTimeout": 2700000, // Cache timeout, any data not accessed within that time is removed -- our default is 45 mins
+    "cacheTimeout": 3600000, // Cache timeout, any data not accessed within that time is removed -- our default is 60 mins
     "cacheTimer": 600000, // at what interval do we check the cache for timeouts -- controls the granularity of cacheTimeout
     "debug": false, // Will show timestamp and activity of redis-oplog
   }
@@ -94,7 +94,7 @@ meteor run --settings settings.json
 
 ### A note about cacheTimeout and cacheTimer
 
-- `cacheTimeout` (ms) is the max time a document can be unaccessed before it is deleted - default 45 minutes
+- `cacheTimeout` (ms) is the max time a document can be unaccessed before it is deleted - default 60 minutes
 - `cacheTimer` (ms) sets the delay in the `setTimeout` timer that checks cache documents' last access delay - default 10 minutes
 
 In other words, your worst-case delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. Default is 10 minutes.
@@ -136,7 +136,66 @@ This is sample data from our production servers for the `users` collection -- **
 1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
 2. For specific **mutations**: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
 
-### API
+## Advanced Features
+
+### Skipping DB -- i.e. dynamic data
+
+This is useful for temporary messages that the client (and other Meteor instances) may need but should not go into the DB
+
+`collection.update(_id,{$set:{message:"Hello there!"}}, {skipDB:true} )`
+
+### Using limits in cursors 
+
+> Note: You need to use this if you are reading from secondary DB nodes
+
+When a cursor has `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
+
+`collection.find({selector:value},{limit:n, sort:{...}, default:true} )`
+
+This will do the first query from the DB with the limit and sort (and get you your `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that meet the selector will trigger reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you may hit race conditions; you have updated the primary and re-querying right away to rebuild the docs before secondaries may have had the change to get the data updates.
+
+### Watchers
+
+This is similar to namespaces in the original `redis-oplog`. What it does is allow changes to be sent to other Meteor instances from redis directly without going through a DB read. 
+
+Here is a complete example to illustrate (only relevant code shown). A user may log in from different apps (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in twice
+
+```
+// we are only using dispatchInsert in the example below ... but you get the picture
+// IMPORTANT: doc HAS to include the document _id
+import { addToWatch, removeFromWatch, dispatchUpdate, dispatchInsert, dispatchRemove } from 'meteor/zegenie:redis-oplog'
+
+const collection = new Mongo.Collection('messages')
+
+// not necessary if you are only doing inserts as we send the full doc to redis
+// but if you are doing updates, prevents DB queries
+collection.startCaching()
+
+onLogin = (userId) => {
+    // first argument is the collection to affect / watch
+    // we are using userId as the channel name
+    addToWatch('messages', userId)
+}
+
+onMessage = (userId, text) => {
+    const date = new Date()
+    const actionId = collection.insert({$set:{text, date, userId:user._id}})
+    // first argument is the collection, second argument is the channel name
+    dispatchInsert('messages', userId, {_id:actionId, text, date})
+}
+
+onLogout = (userId) => {
+    removeFromWatch('messages', userId)
+}
+
+Meteor.publish('messages', function() {
+  return collection.find({userId:this.userId}, {fields:{text:1, date:1})  
+})
+```
+
+
+
+## API
 
 - `collection.startCaching(timeout)`: Sets up the database to start caching all documents that are seen through any DB `findOne`, `find`, `insert` and `update`. If `timeout` is provided it overrides `cacheTimeout` from settings
 - `collection.disableRedis()`:  No updates are sent to redis from this collection **ever**, even if you set `{pushToRedis:true}`
@@ -147,7 +206,11 @@ This is sample data from our production servers for the `users` collection -- **
 - `collection.clearCache(selector)`: Removes from cache all docs that match selector; if selector is empty clears the whole cache
 - `collection.mergeDocs(docs:Array.<Objects>)`: if a doc is not in the cache we load it INTO the cache, if it is in the cache we **override** it in passed docs array (i.e. cache always **prevails** otherwise pull from DB). 
 - `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise gets from DB
-
+- `addToWatch(collectionName, channelName)`: **See Watchers section above**
+- `removeFromWatch(collectionName, channelName)`
+- `dispatchInsert(collectionName, channelName, doc)`
+- `dispatchUpdate(collectionName, channelName, doc)`
+- `dispatchRemove(collectionName, channelName, docId)` or `dispatchRemove(collectionName, channelName, [docId1, docId2, ...])`
 
 ## Important Notes - MUST READ
 
@@ -174,7 +237,7 @@ The major areas that have seen changes from the original redis-oplog
 - `mongo/ObserveMultiplex`: We now call on the cache to get the data, no more local caching of any data, uses projector to send the right fields down
 - `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
 - `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
-- `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers (to be documented later)
+- `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers (see advanced section above)
 
 Everywhere else, major code cleanups and removing of unused helpers in various `/lib` folders
 
