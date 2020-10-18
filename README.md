@@ -166,7 +166,13 @@ A user may log in from different apps (in our case the webapp and a Chrome exten
 ```
 // we are only using dispatchInsert in the example below ... but you get the picture
 // IMPORTANT: doc HAS to include the document _id
-import { addToWatch, removeFromWatch, dispatchUpdate, dispatchInsert, dispatchRemove } from 'meteor/zegenie:redis-oplog'
+import { 
+  addToWatch, 
+  removeFromWatch, 
+  dispatchUpdate, 
+  dispatchInsert, 
+  dispatchRemove 
+} from 'meteor/zegenie:redis-oplog'
 
 const collection = new Mongo.Collection('messages')
 
@@ -192,7 +198,7 @@ onLogout = (userId) => {
 }
 
 Meteor.publish('messages', function() {
-  return collection.find({userId:this.userId}, {fields:{text:1, date:1})  
+    return collection.find({userId:this.userId}, {fields:{text:1, date:1})  
 })
 ```
 
@@ -211,8 +217,8 @@ Meteor.publish('messages', function() {
 - `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise gets from DB
 - `addToWatch(collectionName, channelName)`: **See Watchers section above**
 - `removeFromWatch(collectionName, channelName)`
-- `dispatchInsert(collectionName, channelName, doc)`
-- `dispatchUpdate(collectionName, channelName, doc)`
+- `dispatchInsert(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
+- `dispatchUpdate(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
 - `dispatchRemove(collectionName, channelName, docId)` or `dispatchRemove(collectionName, channelName, [docId1, docId2, ...])`
 
 ## Important Notes - MUST READ
