@@ -158,7 +158,10 @@ This will do the first query from the DB with the limit and sort (and get you yo
 
 This is similar to namespaces in the original `redis-oplog`. What it does is allow changes to be sent to other Meteor instances from redis directly without going through a DB read. 
 
-Here is a complete example to illustrate (only relevant code shown). A user may log in from different apps (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in twice
+Here is a complete example to illustrate (only relevant code shown). 
+
+A user may log in from different apps (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in.
+
 
 ```
 // we are only using dispatchInsert in the example below ... but you get the picture
@@ -179,9 +182,9 @@ onLogin = (userId) => {
 
 onMessage = (userId, text) => {
     const date = new Date()
-    const actionId = collection.insert({$set:{text, date, userId:user._id}})
+    const _id_ = collection.insert({$set:{text, date, userId}})
     // first argument is the collection, second argument is the channel name
-    dispatchInsert('messages', userId, {_id:actionId, text, date})
+    dispatchInsert('messages', userId, {_id, text, date})
 }
 
 onLogout = (userId) => {
@@ -218,7 +221,7 @@ Meteor.publish('messages', function() {
 and put `zegenie:redis-oplog` as the first option.
 - RedisOplog does not work with _insecure_ package.
 - Updates with **positional selectors** have to be done on the DB for now until this [PR](https://github.com/meteor/meteor/pull/9721) is pulled in. Just keep this in mind in terms of your db hits.
-- This package **does not support ordered** observers. You **cannot** use `addedBefore`, `changedBefore` etc. This behavior is unlikely to change as it requires quite a bit of work and is not useful for the original developer. Frankly, you should use `{order:2}` in your doc and order at run-time.
+- This package **does not support ordered** observers. You **cannot** use `addedBefore`, `changedBefore` etc. This behavior is unlikely to change as it requires quite a bit of work and is not useful for the original developer. Frankly, you should use `order` field in your doc and order at run-time.
 - If you have **large documents**, caching could result in memory issues as we store the full document in the cache. You may need to tweak `cacheTimeout`. In such a use case you should have a separate collection for these big fields and prevent caching on it or have shorter timeout. (Note: adding the option to exclude certain fields from being cached will result in undue complexity for a rare use case)
 
 ## OplogToRedis
