@@ -40,3 +40,6 @@ if (process.env.REDIS_OPLOG_SETTINGS) {
 else if (Meteor.settings.redisOplog) {
   init(Meteor.settings.redisOplog)
 }
+else {
+  console.error('RedisOplog: No settings found')
+}

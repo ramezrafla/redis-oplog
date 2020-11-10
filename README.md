@@ -27,8 +27,8 @@ This version of redis-oplog is more streamlined (you can see this with the reduc
 - During `insert`, we build the doc and send it via redis to other instances
 - During `remove`, we send the ids to be removed to other instances
 - We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
-- Servers can now send data to each other's cache directly via a new feature called 'watchers' (will be documented soon)
 - Optimized data sent via redis, only what REALLY changed 
+- Added **Watchers** and **dynamic docs** (see advanced section below)
 
 In other words, this is not a Swiss-Army knife, it is made for a very specific purpose: **scalable read-intensive real-time application**
 
@@ -138,34 +138,48 @@ This is sample data from our production servers for the `users` collection -- **
 
 ## Advanced Features
 
-### Skipping DB -- i.e. dynamic data
+### Dynamic docs -- i.e. skipping DB write
 
-This is useful for temporary messages that the client (and other Meteor instances) may need but should not go into the DB
+This is useful for temporary changes that the client (and other Meteor instances) may need but should not go into the DB. This option is only available for `update` only:
+
+1. For `insert` -- DB call is required to get `_id` 
+2. For `remove` -- remove from cache directly with `deleteCache`
+3. For `upsert` -- we count on the DB to validate if the doc exists
 
 `collection.update(_id,{$set:{message:"Hello there!"}}, {skipDB:true} )`
 
-### Using limits in cursors 
 
-> Note: You need to use this if you are reading from secondary DB nodes
+### Skipping Diffs
 
-When a cursor has `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
+As mentioned, we do a diff vs the existing doc in the cache before we send out the `update` message to Redis and to the DB. This avoids unnecesary hits to the DB and change messages to your other Meteor instances (and reduces your code complexity). There are cases where you don't want to diff (e.g. when you are sure the doc has changed or diff-ing can be expensive)
+
+`collection.update(_id,{$set:{message:"Hello there!"}}, {skipDiff:true} )`
+
+> You can use skipDB and skipDiff together, there is no conflict
+
+
+### Watchers - i.e. server-server updates
+
+This is similar to vents in the original `redis-oplog`. It allows updates to be sent to other Meteor instances directly. This is useful when
+the data loop is closed -- you don't have any potential for updates elsewhere.
+
+Here is a complete example to illustrate (only relevant code shown):
+
+A user logs in with different clients (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in.
+
+### Forcing default update strategy -- (e.g. when using limits in cursors)
+
+> Note: You need to know this if you are reading from secondary DB nodes
+
+When a cursor has `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
 
 `collection.find({selector:value},{limit:n, sort:{...}, default:true} )`
 
-This will do the first query from the DB with the limit and sort (and get you your `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that meet the selector will trigger reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you may hit race conditions; you have updated the primary and re-querying right away to rebuild the docs before secondaries may have had the change to get the data updates.
-
-### Watchers
-
-This is similar to namespaces in the original `redis-oplog`. What it does is allow changes to be sent to other Meteor instances from redis directly without going through a DB read. 
-
-Here is a complete example to illustrate (only relevant code shown). 
-
-A user may log in from different apps (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in.
+This will do the first query from the DB with the limit and sort (and get `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that meet the selector will trigger normal reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you may hit race conditions; you have updated the primary db node and are re-querying right away before secondaries may have had the change to get the data updates.
 
 
 ```
 // we are only using dispatchInsert in the example below ... but you get the picture
-// IMPORTANT: doc HAS to include the document _id
 import { 
   addToWatch, 
   removeFromWatch, 
@@ -190,6 +204,7 @@ onMessage = (userId, text) => {
     const date = new Date()
     const _id_ = collection.insert({$set:{text, date, userId}})
     // first argument is the collection, second argument is the channel name
+    // IMPORTANT: doc HAS to include the document _id
     dispatchInsert('messages', userId, {_id, text, date})
 }
 
