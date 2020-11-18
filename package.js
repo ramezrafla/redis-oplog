@@ -19,7 +19,6 @@ Npm.depends({
 
 // eslint-disable-next-line
 Package.onUse(function(api) {
-  api.versionsFrom('1.5.1');
   api.use([
     'underscore',
     'ecmascript',
