@@ -21,9 +21,9 @@ In addition, the code was becoming complex and hard to understand (with dead cod
 ## What we did
 This version of redis-oplog is more streamlined (you can see this with the reduced number of settings):
 
-- Uses a single central timed cache at the collection-level, which is also the same place that provides data from when you run `findOne` / `find` -- so full data consistency within the app
-- Uses redis to transmit changed fields (we do an actual diff) to other instance caches -- consistency again
-- During `update`, we mutate the cache and send the changed fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (and is very slow)
+- Uses a single central timed cache at the collection-level, which is also the same place that provides data for `findOne` / `find` -- so full data consistency within the app
+- Uses redis to transmit changed (and cleared) fields (we do an actual diff) to other instance caches -- consistency again
+- During `update`, we mutate the cache and send the changed (and cleared) fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (and is very slow)
 - During `insert`, we build the doc and send it via redis to other instances
 - During `remove`, we send the ids to be removed to other instances
 - We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
@@ -167,16 +167,6 @@ Here is a complete example to illustrate (only relevant code shown):
 
 A user logs in with different clients (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in.
 
-### Forcing default update strategy -- (e.g. when using limits in cursors)
-
-> Note: You need to know this if you are reading from secondary DB nodes
-
-When a cursor has `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
-
-`collection.find({selector:value},{limit:n, sort:{...}, default:true} )`
-
-This will do the first query from the DB with the limit and sort (and get `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that meet the selector will trigger normal reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you may hit race conditions; you have updated the primary db node and are re-querying right away before secondaries may have had the change to get the data updates.
-
 
 ```
 // we are only using dispatchInsert in the example below ... but you get the picture
@@ -196,14 +186,14 @@ collection.startCaching()
 
 onLogin = (userId) => {
     // first argument is the collection to affect / watch
-    // we are using userId as the channel name
+    // we are using userId as the channel ID
     addToWatch('messages', userId)
 }
 
 onMessage = (userId, text) => {
     const date = new Date()
-    const _id_ = collection.insert({$set:{text, date, userId}})
-    // first argument is the collection, second argument is the channel name
+    const _id = collection.insert({$set:{text, date, userId}})
+    // first argument is the collection, second argument is the channel ID
     // IMPORTANT: doc HAS to include the document _id
     dispatchInsert('messages', userId, {_id, text, date})
 }
@@ -217,7 +207,15 @@ Meteor.publish('messages', function() {
 })
 ```
 
+### Forcing default update strategy -- (e.g. when using limits in cursors)
 
+> Note: You need to know this if you are reading from secondary DB nodes
+
+When a cursor has `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
+
+`collection.find({selector:value},{limit:n, sort:{...}, default:true} )`
+
+This will do the first query from the DB with the limit and sort (and get `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that meet the selector will trigger normal reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you may hit race conditions; you have updated the primary db node and are re-querying right away before secondaries may have had the change to get the data updates.
 
 ## API
 
@@ -241,13 +239,13 @@ Meteor.publish('messages', function() {
 - To make sure it is compatible with other packages which extend the `Mongo.Collection` methods, make sure you go to `.meteor/packages`
 and put `zegenie:redis-oplog` as the first option.
 - RedisOplog does not work with _insecure_ package.
-- Updates with **positional selectors** have to be done on the DB for now until this [PR](https://github.com/meteor/meteor/pull/9721) is pulled in. Just keep this in mind in terms of your db hits.
-- This package **does not support ordered** observers. You **cannot** use `addedBefore`, `changedBefore` etc. This behavior is unlikely to change as it requires quite a bit of work and is not useful for the original developer. Frankly, you should use `order` field in your doc and order at run-time.
+- Updates with **positional selectors** are done directly on the DB for now until this [PR](https://github.com/meteor/meteor/pull/9721) is pulled in. Just keep this in mind in terms of your db hits.
+- This package **does not support ordered** observers. You **cannot** use `addedBefore`, `changedBefore` etc. This behavior is unlikely to change as it requires quite a bit of work and is not useful for the original developer. Frankly, you should use an `order` field in your doc and order at run-time / on the client.
 - If you have **large documents**, caching could result in memory issues as we store the full document in the cache. You may need to tweak `cacheTimeout`. In such a use case you should have a separate collection for these big fields and prevent caching on it or have shorter timeout. (Note: adding the option to exclude certain fields from being cached will result in undue complexity for a rare use case)
 
 ## OplogToRedis
 
-The GO package [oplogtoredis](https://github.com/tulip/oplogtoredis) is an amazing tool which listens to the DB oplog and sends changes to redis. This way you are always up to date (and you lower your stress on your Meteor instances by omitting redis sends). There is a problem, however. OplogToRedis only sends the fields that have changed, not their new values. We have to pull from the DB those changed fields. This negates our original intent to reduce db hits. Hopefully we'll have some updates on this soon.
+The GO package [oplogtoredis](https://github.com/tulip/oplogtoredis) is an amazing tool which listens to the DB oplog and sends changes to redis. There is a problem, however. OplogToRedis only sends the fields that have changed, not their new values (like we do). We then have to pull from DB, hence negating our original intent to reduce db hits. Hopefully we'll have some updates on this (not urgent for us TBH). That being said, this is another point of failure we can live without.
 
 ## Premium Support
 
@@ -262,8 +260,9 @@ The major areas that have seen changes from the original redis-oplog
 - `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
 - `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
 - `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers (see advanced section above)
+- The redis signaling has been cleaned to remove unused keys (e.g. 'mt', 'id') and synthetic events (we now use watchers) and to include cleared fields ('c' -- i.e. $unset). For more details check `lib/constants`
 
-Everywhere else, major code cleanups and removing of unused helpers in various `/lib` folders
+Everywhere else, **major code cleanups** and removal of unused helpers in various `/lib` folders
 
 ## Contributors
 
