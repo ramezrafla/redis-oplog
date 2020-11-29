@@ -1,7 +1,7 @@
 // eslint-disable-next-line
 Package.describe({
   name: 'zegenie:redis-oplog',
-  version: '2.0.10',
+  version: '2.0.12',
   // Brief, one-line summary of the package.
   summary: "Replacement for Meteor's MongoDB oplog implementation",
   // URL to the Git repository containing the source code for this package.
@@ -13,8 +13,7 @@ Package.describe({
 
 // eslint-disable-next-line
 Npm.depends({
-  redis: '3.0.0',
-  'deep-extend': '0.6.0'
+  redis: '3.0.0'
 });
 
 // eslint-disable-next-line
