@@ -6,8 +6,8 @@ import init from './lib/init'
 import Config from './lib/config'
 import { getRedisListener, getRedisPusher } from './lib/redis/getRedisClient'
 import ObservableCollection from './lib/cache/ObservableCollection'
-import { addToWatch, removeFromWatch } from './lib/redis/WatchManager'
-import { dispatchUpdate, dispatchInsert, dispatchRemove } from './lib/redis/CustomPublish'
+import { addToWatch, removeFromWatch } from './lib/redis/watchManager'
+import { dispatchUpdate, dispatchInsert, dispatchRemove } from './lib/redis/customPublish'
 
 const RedisOplog = {
   init

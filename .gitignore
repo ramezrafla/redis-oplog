@@ -2,3 +2,4 @@
 dump.rdb
 npm-debug.log
 .npm/*
+logs/*

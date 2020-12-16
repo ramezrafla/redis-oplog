@@ -1,11 +1,11 @@
 // eslint-disable-next-line
 Package.describe({
   name: 'zegenie:redis-oplog',
-  version: '2.0.12',
+  version: '2.0.14',
   // Brief, one-line summary of the package.
   summary: "Replacement for Meteor's MongoDB oplog implementation",
   // URL to the Git repository containing the source code for this package.
-  git: 'https://github.com/cult-of-coders/redis-oplog',
+  git: 'https://github.com/ramezrafla/redis-oplog',
   // By default, Meteor will default to using README.md for documentation.
   // To avoid submitting documentation, set this field to null.
   documentation: 'README.md'
@@ -37,7 +37,7 @@ Package.onUse(function(api) {
 
 // eslint-disable-next-line
 Package.onTest(function(api) {
-  api.use('cultofcoders:redis-oplog');
+  api.use('zegenie:redis-oplog');
 
   // extensions
   api.use('aldeed:collection2@3.0.0');
