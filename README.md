@@ -26,9 +26,10 @@ This version of redis-oplog is more streamlined (you can see this with the reduc
 - During `update`, we mutate the cache and send the changed (and cleared) fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (and is very slow)
 - During `insert`, we build the doc and send it via redis to other instances
 - During `remove`, we send the ids to be removed to other instances
-- We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
+- We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries (Note: You don't have to use secondaries, just know that this package made it possible for us)
 - Optimized data sent via redis, only what REALLY changed 
 - Added **Watchers** and **dynamic docs** (see advanced section below) 
+- Added internal support for `collection-hooks` when caching (see Collection-hooks section below)
 
 In other words, this is not a Swiss-Army knife, it is made for a very specific purpose: **scalable read-intensive real-time application**
 
@@ -40,7 +41,7 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 - We substantially reduced the load on our DB instances -- from 80% to 7% on primary (secondaries went up a bit, which is fine as they were idle anyway)
 
 ## Ideas for future improvements
-- Create LUA script for Redis to hold recent history of changes to get around rare race-conditions
+- Add internal race-condition detector and query primary when a race is detected, could be as easy as detecting when conflicting changes occur to a doc and reacting to them
 - Support external redis publisher [`oplogtoredis`](https://github.com/tulip/oplogtoredis). A separate section below talks about this.
 - Create formal Meteor package if there is interest by the community
 
@@ -133,20 +134,21 @@ This is sample data from our production servers for the `users` collection -- **
 
 ### Disabling Redis
 
-1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
+1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is needed for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
 2. For specific **mutations**: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
 
 ### Collection-hooks
 
-The package [collection-hooks](https://github.com/Meteor-Community-Packages/meteor-collection-hooks) is very popular as it allows you to call methods before / after DB calls. Unfornutately when caching a collection, this package causes collisions (as it counts on direct access to the DB, which may result in cached docs being different from DB docs). As such, we override the following methods to give you the same functionality as `collection-hooks` **only when the collection is cached - i.e. when you call `collection.startCaching()`**. Please refer to the original package for the signature of `cb` below:
+The package [collection-hooks](https://github.com/Meteor-Community-Packages/meteor-collection-hooks) is very popular as it allows you to call methods before / after DB calls. Unfortunately when caching a collection, this package causes collisions (as you may mutate DB-version of the doc, resulting in collision with cache). As such, we override the following methods to give you the same functionality as `collection-hooks` **only when the collection is cached - i.e. when you call `collection.startCaching()`**. Please refer to the original package for the signature of `cb` below:
 
 ```
 collection.before.<find, findOne, insert, update, remove>(cb)
 collection.after.<find, findOne, insert, update, remove>(cb)
 collection.direct.<find, findOne, insert,update,remove>(cb)
 ```
+
 **Notes:**
-* We do not support `this.transform` & `this.previous` inside the callbacks as in the original package
+* We do not support `this.transform` & `this.previous` inside the callbacks as in the original package -- if it's needed, PRs are welcome
 * We do not yet support `<before, after, direct>.upsert` -- not sure we ever well, pls PR if you need it
 
 ## Advanced Features
@@ -159,10 +161,10 @@ collection.insert({message:"Hello there!"}, {skipDB:true} )
 ```
 
 
-This is useful for temporary changes that the client (and other Meteor instances) may need but should not go into the DB. This option is only available for `insert` and `update` only:
+This is useful for temporary changes that the client (and other Meteor instances) may need but should not go into the DB. This option is only available for `insert` and `update`:
 
-1. For `remove` -- remove from cache directly with `deleteCache`
-2. For `upsert` -- we count on the DB to validate if the doc exists
+1. For `remove` -- you can remove from cache directly with `deleteCache`
+2. For `upsert` -- we count on the DB to validate if the doc exists so defeats the purpose of skipping DB
 
 **Note: If skipping DB on `insert` and you don't provide `_id`, a random one will be created for consistency**
 
@@ -272,11 +274,11 @@ We are here to help. Feel free to contact us at ramez@classroomapp.com for this 
 
 The major areas that have seen changes from the original redis-oplog
 - `mongo/extendMongoCollection`: Added support for caching
-- `mongo/Mutator`: Support for caching, removed sending the whole doc for the deprecated option `protectRaceConditions`, check which fields have REALLY changed and only send those, build inserts locally
-- `mongo/ObserveMultiplex`: We now call on the cache to get the data, no more local caching of any data, uses projector to send the right fields down
-- `cache/ObservableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
-- `redis/RedisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
-- `redis/WatchManager` and `redis/CustomPublish`: New feature to allow server-server data transfers (see advanced section above)
+- `mongo/mutator`: Support for caching, removed sending the whole doc for the deprecated option `protectRaceConditions`, check which fields have REALLY changed and only send those, build inserts locally
+- `mongo/observeMultiplex`: We now call on the cache to get the data, no more local caching of any data, uses projector to send the right fields down
+- `cache/observableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
+- `redis/redisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
+- `redis/watchManager` and `redis/customPublish`: New feature to allow server-server data transfers (see advanced section above)
 - The redis signaling has been cleaned to remove unused keys (e.g. 'mt', 'id') and synthetic events (we now use watchers) and to include cleared fields ('c' -- i.e. $unset). For more details check `lib/constants`
 
 Everywhere else, **major code cleanups** and removal of unused helpers in various `/lib` folders
