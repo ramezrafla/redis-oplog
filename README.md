@@ -28,7 +28,7 @@ This version of redis-oplog is more streamlined (you can see this with the reduc
 - During `remove`, we send the ids to be removed to other instances
 - We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries
 - Optimized data sent via redis, only what REALLY changed 
-- Added **Watchers** and **dynamic docs** (see advanced section below)
+- Added **Watchers** and **dynamic docs** (see advanced section below) 
 
 In other words, this is not a Swiss-Army knife, it is made for a very specific purpose: **scalable read-intensive real-time application**
 
@@ -123,9 +123,9 @@ If you want to do this in production, copy the code at the bottom of `/lib/init.
 This is sample data from our production servers for the `users` collection -- **99% hits!!**:
 ```
 {
-  hitRatio: 98.85108236349966
-  hits: 6143833
-  misses: 71408
+    hitRatio: 98.85108236349966
+    hits: 6143833
+    misses: 71408
 }
 ```
 
@@ -136,18 +136,35 @@ This is sample data from our production servers for the `users` collection -- **
 1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is useful for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
 2. For specific **mutations**: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
 
+### Collection-hooks
+
+The package [collection-hooks](https://github.com/Meteor-Community-Packages/meteor-collection-hooks) is very popular as it allows you to call methods before / after DB calls. Unfornutately when caching a collection, this package causes collisions (as it counts on direct access to the DB, which may result in cached docs being different from DB docs). As such, we override the following methods to give you the same functionality as `collection-hooks` **only when the collection is cached - i.e. when you call `collection.startCaching()`**. Please refer to the original package for the signature of `cb` below:
+
+```
+collection.before.<find, findOne, insert, update, remove>(cb)
+collection.after.<find, findOne, insert, update, remove>(cb)
+collection.direct.<find, findOne, insert,update,remove>(cb)
+```
+**Notes:**
+* We do not support `this.transform` & `this.previous` inside the callbacks as in the original package
+* We do not yet support `<before, after, direct>.upsert` -- not sure we ever well, pls PR if you need it
+
 ## Advanced Features
 
 ### Dynamic docs -- i.e. skipping DB write
 
-This is useful for temporary changes that the client (and other Meteor instances) may need but should not go into the DB. This option is only available for `update` only:
+```
+collection.update(_id,{$set:{message:"Hello there!"}}, {skipDB:true} )
+collection.insert({message:"Hello there!"}, {skipDB:true} )
+```
 
-1. For `insert` -- DB call is required to get `_id` 
-2. For `remove` -- remove from cache directly with `deleteCache`
-3. For `upsert` -- we count on the DB to validate if the doc exists
 
-`collection.update(_id,{$set:{message:"Hello there!"}}, {skipDB:true} )`
+This is useful for temporary changes that the client (and other Meteor instances) may need but should not go into the DB. This option is only available for `insert` and `update` only:
 
+1. For `remove` -- remove from cache directly with `deleteCache`
+2. For `upsert` -- we count on the DB to validate if the doc exists
+
+**Note: If skipping DB on `insert` and you don't provide `_id`, a random one will be created for consistency**
 
 ### Skipping Diffs
 
