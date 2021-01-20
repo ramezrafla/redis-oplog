@@ -170,7 +170,7 @@ This is useful for temporary changes that the client (and other Meteor instances
 
 ### Skipping Diffs
 
-As mentioned, we do a diff vs the existing doc in the cache before we send out the `update` message to Redis and to the DB. This avoids unnecesary hits to the DB and change messages to your other Meteor instances (and reduces your code complexity). There are cases where you don't want to diff (e.g. when you are sure the doc has changed or diff-ing can be expensive)
+As mentioned, we do a diff vs the existing doc in the cache before we send out the `update` message to Redis and to the DB. This option avoids unnecesary hits to the DB and change messages to your other Meteor instances. This useful for cases where you don't want to diff (e.g. when you are sure the doc has changed or diff-ing can be computationally expensive)
 
 `collection.update(_id,{$set:{message:"Hello there!"}}, {skipDiff:true} )`
 
@@ -179,12 +179,12 @@ As mentioned, we do a diff vs the existing doc in the cache before we send out t
 
 ### Watchers - i.e. server-server updates
 
-This is similar to vents in the original `redis-oplog`. It allows updates to be sent to other Meteor instances directly. This is useful when
+This is similar to Vents in the original `redis-oplog`. It allows updates to be sent to other Meteor instances directly. This is useful when
 the data loop is closed -- you don't have any potential for updates elsewhere.
 
 Here is a complete example to illustrate (only relevant code shown):
 
-A user logs in with different clients (in our case the webapp and a Chrome extension). We don't want to be listening to expensive DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in.
+A user logs in with different clients (in our case the webapp and a Chrome extension). We don't want to be listening to expensive user-only DB changes for each user in two Meteor instances per user, especially when the data is well-known. So we send data back and forth between the Meteor instances where the user is logged in.
 
 
 ```
@@ -205,7 +205,7 @@ collection.startCaching()
 
 onLogin = (userId) => {
     // first argument is the collection to affect / watch
-    // we are using userId as the channel ID
+    // second argument is the unique channel ID, we are using userId in our case
     addToWatch('messages', userId)
 }
 
@@ -220,21 +220,17 @@ onMessage = (userId, text) => {
 onLogout = (userId) => {
     removeFromWatch('messages', userId)
 }
-
-Meteor.publish('messages', function() {
-    return collection.find({userId:this.userId}, {fields:{text:1, date:1})  
-})
 ```
 
 ### Forcing default update strategy -- (e.g. when using limits in cursors)
 
 > Note: You need to know this if you are reading from secondary DB nodes
 
-When a cursor has `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
+When a cursor has optiob `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
 
 `collection.find({selector:value},{limit:n, sort:{...}, default:true} )`
 
-This will do the first query from the DB with the limit and sort (and get `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that meet the selector will trigger normal reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you may hit race conditions; you have updated the primary db node and are re-querying right away before secondaries may have had the change to get the data updates.
+This will run the first query from the DB with the limit and sort (and get `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that match the selector will trigger normal reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you WILL hit race conditions; you have updated the primary db node and are re-querying right away before secondaries get the data updates.
 
 ## API
 
@@ -257,14 +253,14 @@ This will do the first query from the DB with the limit and sort (and get `n` do
 
 - To make sure it is compatible with other packages which extend the `Mongo.Collection` methods, make sure you go to `.meteor/packages`
 and put `zegenie:redis-oplog` as the first option.
-- RedisOplog does not work with _insecure_ package.
+- RedisOplog does not work with _insecure_ package, a warning is issued.
 - Updates with **positional selectors** are done directly on the DB for now until this [PR](https://github.com/meteor/meteor/pull/9721) is pulled in. Just keep this in mind in terms of your db hits.
 - This package **does not support ordered** observers. You **cannot** use `addedBefore`, `changedBefore` etc. This behavior is unlikely to change as it requires quite a bit of work and is not useful for the original developer. Frankly, you should use an `order` field in your doc and order at run-time / on the client.
-- If you have **large documents**, caching could result in memory issues as we store the full document in the cache. You may need to tweak `cacheTimeout`. In such a use case you should have a separate collection for these big fields and prevent caching on it or have shorter timeout. (Note: adding the option to exclude certain fields from being cached will result in undue complexity for a rare use case)
+- If you have **large documents**, caching could result in memory issues as we store the full document in the cache (for performance reasons, so we don't start matching missing fields etc. for the rare use case). You may need to tweak `cacheTimeout`. In such a use case I recommend you have a separate collection for these big fields and prevent caching on it or have shorter timeout. 
 
 ## OplogToRedis
 
-The GO package [oplogtoredis](https://github.com/tulip/oplogtoredis) is an amazing tool which listens to the DB oplog and sends changes to redis. There is a problem, however. OplogToRedis only sends the fields that have changed, not their new values (like we do). We then have to pull from DB, hence negating our original intent to reduce db hits. Hopefully we'll have some updates on this (not urgent for us TBH). That being said, this is another point of failure we can live without.
+The GO package [oplogtoredis](https://github.com/tulip/oplogtoredis) is an amazing tool which listens to the DB oplog and sends changes to redis. There is a problem, however. OplogToRedis only **sends the fields that have changed, not their final values** (like we do). We then have to pull from DB, hence negating our original intent to reduce db hits. Hopefully we'll have some updates on this (not urgent for us TBH). That being said, this is another point of failure vs. the original redis-oplog we can certainly live without.
 
 ## Premium Support
 
