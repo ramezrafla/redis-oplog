@@ -19,18 +19,19 @@ We were facing three major issues with the original redis-oplog
 In addition, the code was becoming complex and hard to understand (with dead code and need for optimization). This is owing to many hands getting involved and its aim to cover as many use cases as possible. **Such an important building-block for us had to be easily maintainable**.
 
 ## What we did
-This version of redis-oplog is more streamlined (you can see this with the reduced number of settings):
+This version of redis-oplog is more streamlined:
 
 - Uses a single central timed cache at the collection-level, which is also the same place that provides data for `findOne` / `find` -- so full data consistency within the app
-- Uses redis to transmit changed (and cleared) fields (we do an actual diff) to other instance caches -- consistency again
-- During `update`, we mutate the cache and send the changed (and cleared) fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (and is very slow)
+- Uses redis to transmit changed (and cleared) fields (we do an actual diff) to other meteor instance caches -- consistency again and reduction of db hits as the meteor instances are 'helping' each other out
+- During `update`, we mutate the cache and send the changed (and cleared) fields to the DB and redis -- instead of the current find, update, then find again which has 2 more hits than needed (which also slows down the application)
 - During `insert`, we build the doc and send it via redis to other instances
 - During `remove`, we send the ids to be removed to other instances
-- We use secondary DB reads in our app -- there are potential race conditions in extreme cases which we handle client-side for now; but we are now ready for scalability. If you have more reads --> spin up more secondaries (Note: You don't have to use secondaries, just know that this package made it possible for us)
+- We use secondary DB reads in our app. If you have more reads --> spin up more secondaries (Note: You don't have to use secondaries, just know that this package makes it possible)
 - Optimized data sent via redis, only what REALLY changed 
 - Added **Watchers** and **dynamic docs** (see advanced section below) 
 - Added internal support for `collection-hooks` when caching (see Collection-hooks section below)
-
+- Added a race conditions detector which queries the DB (master node) and updates its cache (read below)
+ 
 In other words, this is not a Swiss-Army knife, it is made for a very specific purpose: **scalable read-intensive real-time application**
 
 ## Results
@@ -41,7 +42,6 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 - We substantially reduced the load on our DB instances -- from 80% to 7% on primary (secondaries went up a bit, which is fine as they were idle anyway)
 
 ## Ideas for future improvements
-- Add internal race-condition detector and query primary when a race is detected, could be as easy as detecting when conflicting changes occur to a doc and reacting to them
 - Support external redis publisher [`oplogtoredis`](https://github.com/tulip/oplogtoredis). A separate section below talks about this.
 - Create formal Meteor package if there is interest by the community
 
@@ -82,8 +82,11 @@ Configure it via Meteor settings:
         "optimistic": true, // Does not do a sync processing on the diffs. But it works by default with client-side mutations.
         "pushToRedis": true // Pushes to redis the changes by default
     },
-    "cacheTimeout": 3600000, // Cache timeout, any data not accessed within that time is removed -- our default is 60 mins
-    "cacheTimer": 600000, // at what interval do we check the cache for timeouts -- controls the granularity of cacheTimeout
+    "cacheTimeout": 3600000, // Cache timeout, any data not accessed within that time is removed -- our default is 60 mins [READ BELOW BEFORE CHANGING]
+    "cacheTimer": 600000, // at what interval do we check the cache for timeouts -- controls the granularity of cacheTimeout [READ BELOW BEFORE CHANGING]
+    "secondaryReads": null, // Are you reading from secondary DB nodes
+    "raceDetectionDelay": 1000, // How long until all mongo nodes are assumed to have been 
+    "raceDetection": true, // set to null to automate this (see Race Conditions Detector below)
     "debug": false, // Will show timestamp and activity of redis-oplog
   }
 }
@@ -93,14 +96,37 @@ Configure it via Meteor settings:
 meteor run --settings settings.json
 ```
 
-### A note about cacheTimeout and cacheTimer
+## CacheTimeout and cacheTimer
 
 - `cacheTimeout` (ms) is the max time a document can be unaccessed before it is deleted - default 60 minutes
-- `cacheTimer` (ms) sets the delay in the `setTimeout` timer that checks cache documents' last access delay - default 10 minutes
+- `cacheTimer` (ms) sets the delay of the `setTimeout` timer that checks cache documents' last access delay vs `cacheTimeout` - default 10 minutes
 
-In other words, your worst-case delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. Default is 10 minutes.
+In other words, your worst-case delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. 
 
-Each project is different, so watch your memory usage to make sure your `cacheTimeout` does not bust your heap memory. It's a tradeoff, DB hits vs Meteor instance memory. Regardless, you are using way less memory than the original redis-oplog as there is no duplication of docs (exception: if you have large docs, see notes at end of this doc)
+Each project is different, so watch your memory usage to make sure your `cacheTimeout` does not bust your heap memory. It's a tradeoff, DB hits vs Meteor instance memory. Regardless, you are using way less memory than the original redis-oplog (which stored the same data for every different subscription)  - if you have large docs, see notes at end of this doc
+
+## Secondary Reads
+
+If you don't set `secondaryReads` to a Boolean value (`true`/`false`) we parse your `MONGO_URL`. 
+
+This functionality affects two things:
+1. Forces default strategy for limits (see below)
+2. Automatically enables race conditions detection if `raceDetection` is null (useful if you want the same settings.json in development as in production)
+
+## Race Conditions Detector
+
+> You will see in your server logs `RedisOplog: RaceDetectionManager started` when it starts up
+
+Given we are counting on internal caching (and potentially secondary reads) this detector is very important. It reads from your primary DB node (if you are reading from secondary nodes we will create a connector to your primary DB node) to fetch a clean copy of the document in the case where data is changing too fast to guarantee the cache is accurate. Observers will be triggered for changed values.
+
+The setting `raceDetectionDelay` value is important, we check within that time window if the same fields were affected by a prior mutation. If so, we get the doc from the primary DB node. A crude collision detector is in place to prevent multiple meteor instances from making the same call. The one that does make the call will update all the other meteor nodes.
+
+You will get a warning in the console like this: `Redios-Oplog: Potential race condition users-<_ID> [updatedAt, password]` which will indicate that we caught a potential race condition and are handling it (set `debug` to true to see the sequence of events)
+
+> If you are facing weird data issues and suspect we are not catching all race conditions, set `raceDetectionDelay` to a very large value then see if that fixes it and watch your logs, you can then tweak the value for your setup
+
+If you have fields that change often and you don't care about their value (e.g. `updatedAt`) you can disable race detection on the server at startup:
+`this.collection.addRaceFieldsToIgnore(['updatedAt'])`
 
 ## Setup & basic usage
 
@@ -234,15 +260,19 @@ This will run the first query from the DB with the limit and sort (and get `n` d
 
 ## API
 
+### Setup
 - `collection.startCaching(timeout)`: Sets up the database to start caching all documents that are seen through any DB `findOne`, `find`, `insert` and `update`. If `timeout` is provided it overrides `cacheTimeout` from settings
 - `collection.disableRedis()`:  No updates are sent to redis from this collection **ever**, even if you set `{pushToRedis:true}`
-- `collection.getCache(id):<Object>`: Avoid, use `findOne` if you can, as this function clones the entire doc
+- `collection.addRaceFieldsToIgnore(['updatedAt'])`: Defines fields to be ignored by the race conditions detector 
+
+### Normal Usage
+- `collection.getCache(id):<Object>`: Normally you would use `findOne`
 - `collection.hasCache(id):Boolean`
 - `collection.setCache(doc)`: Use carefully, as it overrides the entire doc
-- `collection.deleteCache(id or doc)`: Again, avoid if you can. Use `collection.remove` instead
+- `collection.deleteCache(id or doc)`: Normally you would use `remove`
 - `collection.clearCache(selector)`: Removes from cache all docs that match selector; if selector is empty clears the whole cache
 - `collection.mergeDocs(docs:Array.<Objects>)`: if a doc is not in the cache we load it INTO the cache, if it is in the cache we **override** it in passed docs array (i.e. cache always **prevails** otherwise pull from DB). 
-- `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise gets from DB
+- `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise pulls from DB
 - `addToWatch(collectionName, channelName)`: **See Watchers section above**
 - `removeFromWatch(collectionName, channelName)`
 - `dispatchInsert(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
