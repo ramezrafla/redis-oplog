@@ -268,11 +268,9 @@ This will run the first query from the DB with the limit and sort (and get `n` d
 ### Normal Usage
 - `collection.getCache(id):<Object>`: Normally you would use `findOne`
 - `collection.hasCache(id):Boolean`
-- `collection.setCache(doc)`: Use carefully, as it overrides the entire doc
+- `collection.setCache(doc)`: Use carefully, as it overrides the entire doc, normally you would use `update`
 - `collection.deleteCache(id or doc)`: Normally you would use `remove`
 - `collection.clearCache(selector)`: Removes from cache all docs that match selector; if selector is empty clears the whole cache
-- `collection.mergeDocs(docs:Array.<Objects>)`: if a doc is not in the cache we load it INTO the cache, if it is in the cache we **override** it in passed docs array (i.e. cache always **prevails** otherwise pull from DB). 
-- `collection.fetchInCacheFirst(ids:Array.<String>)`: Pull from cache first, otherwise pulls from DB
 - `addToWatch(collectionName, channelName)`: **See Watchers section above**
 - `removeFromWatch(collectionName, channelName)`
 - `dispatchInsert(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
