@@ -13,7 +13,8 @@ Package.describe({
 
 // eslint-disable-next-line
 Npm.depends({
-  redis: '3.0.0'
+  redis: '3.0.0',
+  'deep-equal': '2.0.5'
 });
 
 // eslint-disable-next-line
