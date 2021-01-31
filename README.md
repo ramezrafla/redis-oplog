@@ -82,8 +82,8 @@ Configure it via Meteor settings:
         "optimistic": true, // Does not do a sync processing on the diffs. But it works by default with client-side mutations.
         "pushToRedis": true // Pushes to redis the changes by default
     },
-    "cacheTimeout": 3600000, // Cache timeout, any data not accessed within that time is removed -- our default is 60 mins [READ BELOW BEFORE CHANGING]
-    "cacheTimer": 600000, // at what interval do we check the cache for timeouts -- controls the granularity of cacheTimeout [READ BELOW BEFORE CHANGING]
+    "cacheTimeout": 30*60*1000, // 30 mins -- Cache timeout, any data not accessed within that time is removed [READ BELOW BEFORE CHANGING]
+    "cacheTimer": 5*60*1000, // 5 mins -- Time interval to check the cache for timeouts i.e. the granularity of cacheTimeout [READ BELOW BEFORE CHANGING]
     "secondaryReads": null, // Are you reading from secondary DB nodes
     "raceDetectionDelay": 1000, // How long until all mongo nodes are assumed to have been 
     "raceDetection": true, // set to null to automate this (see Race Conditions Detector below)
@@ -96,12 +96,16 @@ Configure it via Meteor settings:
 meteor run --settings settings.json
 ```
 
-## CacheTimeout and cacheTimer
+## Cache Persistence and Clearing
+
+> This RedisOplog will keep in cache any doc that is part of an active subscription or was last accessed within the `cacheTimeout` delay
 
 - `cacheTimeout` (ms) is the max time a document can be unaccessed before it is deleted - default 60 minutes
 - `cacheTimer` (ms) sets the delay of the `setTimeout` timer that checks cache documents' last access delay vs `cacheTimeout` - default 10 minutes
 
-In other words, your worst-case delay before clearing a document is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. 
+In other words, your worst-case delay before clearing a document (assuming it is not part of a subscription) is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. 
+
+> Once a cached document is no longer part of a subscription, it will be cleared at the next cleanup cycle if it has not been accessed within `cacheTimeout` delay
 
 Each project is different, so watch your memory usage to make sure your `cacheTimeout` does not bust your heap memory. It's a tradeoff, DB hits vs Meteor instance memory. Regardless, you are using way less memory than the original redis-oplog (which stored the same data for every different subscription)  - if you have large docs, see notes at end of this doc
 
