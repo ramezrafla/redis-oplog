@@ -37,7 +37,7 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 ## Results
 
 - We reduced the number of meteor instances by 3x
-- No more out of memory and CPU spikes in Meteor -- stabler loads
+- No more out of memory and CPU spikes in Meteor -- more stable loads which slowly goes up with number of users
 - Faster updates (including to client) given fewer DB hits and less data sent to redis (and hence, the other meteor instances' load is reduced)
 - We substantially reduced the load on our DB instances -- from 80% to 7% on primary (secondaries went up a bit, which is fine as they were idle anyway)
 
@@ -100,8 +100,8 @@ meteor run --settings settings.json
 
 > This RedisOplog will keep in cache any doc that is part of an active subscription or was last accessed within the `cacheTimeout` delay
 
-- `cacheTimeout` (ms) is the max time a document can be unaccessed before it is deleted - default 60 minutes
-- `cacheTimer` (ms) sets the delay of the `setTimeout` timer that checks cache documents' last access delay vs `cacheTimeout` - default 10 minutes
+- `cacheTimeout` (ms) is the max time a document can be unaccessed (if it is not part of a sub) before it is deleted - default 30 minutes
+- `cacheTimer` (ms) sets the delay of the `setTimeout` timer that checks cache documents' last access delay vs `cacheTimeout` - default 5 minutes
 
 In other words, your worst-case delay before clearing a document (assuming it is not part of a subscription) is `cacheTimeout + cacheTimer`. Don't set `cacheTimer` too low so not to overload your server with frequent checks, set it too high and you overload your memory. 
 
@@ -115,7 +115,7 @@ If you don't set `secondaryReads` to a Boolean value (`true`/`false`) we parse y
 
 This functionality affects two things:
 1. Forces default strategy for limits (see below)
-2. Automatically enables race conditions detection if `raceDetection` is null (useful if you want the same settings.json in development as in production)
+2. Automatically enables race conditions detection if `raceDetection` is `null` (set to `null` useful if you want the same settings.json in development as in production)
 
 ## Race Conditions Detector
 
@@ -123,20 +123,24 @@ This functionality affects two things:
 
 Given we are counting on internal caching (and potentially secondary reads) this detector is very important. It reads from your primary DB node (if you are reading from secondary nodes we will create a connector to your primary DB node) to fetch a clean copy of the document in the case where data is changing too fast to guarantee the cache is accurate. Observers will be triggered for changed values.
 
-The setting `raceDetectionDelay` value is important, we check within that time window if the same fields were affected by a prior mutation. If so, we get the doc from the primary DB node. A crude collision detector is in place to prevent multiple meteor instances from making the same call. The one that does make the call will update all the other meteor nodes.
+The setting `raceDetectionDelay` value is important, we check within that time window if the same fields were affected by a prior mutation. If so, we get the doc from the primary DB node. A crude collision detector is in place to prevent multiple meteor instances from making the same fetch call to the DB. The one that does make the call to the DB will update all the other meteor nodes.
 
 You will get a warning in the console like this: `Redios-Oplog: Potential race condition users-<_ID> [updatedAt, password]` which will indicate that we caught a potential race condition and are handling it (set `debug` to true to see the sequence of events)
 
 > If you are facing weird data issues and suspect we are not catching all race conditions, set `raceDetectionDelay` to a very large value then see if that fixes it and watch your logs, you can then tweak the value for your setup
 
-If you have fields that change often and you don't care about their value (e.g. `updatedAt`) you can disable race detection on the server at startup:
+If you have fields that change often and you don't care about their value (e.g. `updatedAt`) you can disable race detection on these fields on the server at startup:
 `this.collection.addRaceFieldsToIgnore(['updatedAt'])`
+
+## Clearing fields -- $unset
+
+When an `$unset` update is made, we send the fields to be cleared via Redis to the other Meteor instances. Furthermore, when we detect a `$set` of top-level field to `null` or `undefined`, we clear those fields too. This is to get around what many believe is a bug in Mongo; a null setter should be the same as `$unset`. Be careful if you are using strict equality with `null` (i.e. `=== null`) as it will fail in your application (not that you should, this is bad practice).
 
 ## Setup & basic usage
 
 **Notes:** 
 1. All setup is done server-side only, the following methods are not exposed client-side (nor should they be)
-2. Please review the API section as well as the Important Notes section below
+2. Please review the API section (as well as the Important Notes section) below
 
 
 ### Caching
@@ -145,7 +149,7 @@ In your code, for the collections you want to cache (which should really be most
 
 `collection.startCaching()`
 
-To get hits vs misses you can call the following method from your browser console in **development**
+To get an idea of cache hits vs misses you can call the following method from your browser console in **development**
 
 `Meteor.call('__getCollectionStats','myCollectionName',console.log)`
 
@@ -200,7 +204,7 @@ This is useful for temporary changes that the client (and other Meteor instances
 
 ### Skipping Diffs
 
-As mentioned, we do a diff vs the existing doc in the cache before we send out the `update` message to Redis and to the DB. This option avoids unnecesary hits to the DB and change messages to your other Meteor instances. This useful for cases where you don't want to diff (e.g. when you are sure the doc has changed or diff-ing can be computationally expensive)
+As mentioned, we do a diff vs the existing doc in the cache before we send out the `update` message to Redis and to the DB. This option avoids unnecesary hits to the DB and change messages to your other Meteor instances. This option to disable diff-ing is useful for cases where you don't want to diff (e.g. when you are sure the doc has changed or diff-ing can be computationally expensive)
 
 `collection.update(_id,{$set:{message:"Hello there!"}}, {skipDiff:true} )`
 
@@ -256,30 +260,35 @@ onLogout = (userId) => {
 
 > Note: You need to know this if you are reading from secondary DB nodes
 
-When a cursor has optiob `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
+When a cursor has option `{limit:n}` redis-oplog has to query the DB at each change to get the current `n` valid documents. This is a killer in DB and app performance and often unnecessary from the client-side. You can disable this re-querying of the DB by forcing the `default` strategy
 
 `collection.find({selector:value},{limit:n, sort:{...}, default:true} )`
 
 This will run the first query from the DB with the limit and sort (and get `n` documents), but then behaves as a regular `find` from that point on (i.e. inserts, updates and removes that match the selector will trigger normal reactivity). This is likely to be sufficient most of the time. If you are reading from secondary DB nodes without this change, you WILL hit race conditions; you have updated the primary db node and are re-querying right away before secondaries get the data updates.
+
+> When `secondaryReads` is `true`, the default strategy is enabled automatically for queries with `limit`, you don't have to do anything
 
 ## API
 
 ### Setup
 - `collection.startCaching(timeout)`: Sets up the database to start caching all documents that are seen through any DB `findOne`, `find`, `insert` and `update`. If `timeout` is provided it overrides `cacheTimeout` from settings
 - `collection.disableRedis()`:  No updates are sent to redis from this collection **ever**, even if you set `{pushToRedis:true}`
-- `collection.addRaceFieldsToIgnore(['updatedAt'])`: Defines fields to be ignored by the race conditions detector 
+- `collection.disableDiff()`: No diff-ing occurs on `update` (and `upsert`), see section above on **Skipping Diffs**
+- `collection.addRaceFieldsToIgnore(['updatedAt'])`: Defines fields to be ignored by the race conditions detector, see section above on **Race Conditions Detector**
 
-### Normal Usage
+### Watchers API - See Watchers section above
+- `addToWatch(collectionName, channelName)`
+- `removeFromWatch(collectionName, channelName)`
+- `dispatchInsert(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
+- `dispatchUpdate(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
+- `dispatchRemove(collectionName, channelName, docId)` or `dispatchRemove(collectionName, channelName, [docId1, docId2, ...])`
+
+### Internal API - Normally you don't need to know this
 - `collection.getCache(id):<Object>`: Normally you would use `findOne`
 - `collection.hasCache(id):Boolean`
 - `collection.setCache(doc)`: Use carefully, as it overrides the entire doc, normally you would use `update`
 - `collection.deleteCache(id or doc)`: Normally you would use `remove`
 - `collection.clearCache(selector)`: Removes from cache all docs that match selector; if selector is empty clears the whole cache
-- `addToWatch(collectionName, channelName)`: **See Watchers section above**
-- `removeFromWatch(collectionName, channelName)`
-- `dispatchInsert(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
-- `dispatchUpdate(collectionName, channelName, doc)`: Note that `doc` **has** to include `_id`
-- `dispatchRemove(collectionName, channelName, docId)` or `dispatchRemove(collectionName, channelName, [docId1, docId2, ...])`
 
 ## Important Notes - MUST READ
 
@@ -307,7 +316,7 @@ The major areas that have seen changes from the original redis-oplog
 - `cache/observableCollection`: No longer caching of data, just IDs; uses cache to build initial adds
 - `redis/redisSubscriptionManager`: Many changes to support using Cache -- removed `getDoc` method
 - `redis/watchManager` and `redis/customPublish`: New feature to allow server-server data transfers (see advanced section above)
-- The redis signaling has been cleaned to remove unused keys (e.g. 'mt', 'id') and synthetic events (we now use watchers) and to include cleared fields ('c' -- i.e. $unset). For more details check `lib/constants`
+- The redis signaling has been cleaned to remove unused keys (e.g. 'mt', 'id') and synthetic events (we now use watchers), to include cleared fields ('c' -- i.e. $unset) and forced update / insert for avoiding race conditions ('fu' / 'fi'). For more details check `lib/constants`
 
 Everywhere else, **major code cleanups** and removal of unused helpers in various `/lib` folders
 
