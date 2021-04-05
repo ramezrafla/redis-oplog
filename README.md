@@ -130,7 +130,7 @@ You will get a warning in the console like this: `Redios-Oplog: Potential race c
 > If you are facing weird data issues and suspect we are not catching all race conditions, set `raceDetectionDelay` to a very large value then see if that fixes it and watch your logs, you can then tweak the value for your setup
 
 If you have fields that change often and you don't care about their value (e.g. `updatedAt`) you can disable race detection on these fields on the server at startup:
-`this.collection.addRaceFieldsToIgnore(['updatedAt'])`
+`this.collection.setRaceFieldsToIgnore(['updatedAt'])`
 
 ## Clearing fields -- $unset
 
@@ -274,7 +274,7 @@ This will run the first query from the DB with the limit and sort (and get `n` d
 - `collection.startCaching(timeout)`: Sets up the database to start caching all documents that are seen through any DB `findOne`, `find`, `insert` and `update`. If `timeout` is provided it overrides `cacheTimeout` from settings
 - `collection.disableRedis()`:  No updates are sent to redis from this collection **ever**, even if you set `{pushToRedis:true}`
 - `collection.disableDiff()`: No diff-ing occurs on `update` (and `upsert`), see section above on **Skipping Diffs**
-- `collection.addRaceFieldsToIgnore(['updatedAt'])`: Defines fields to be ignored by the race conditions detector, see section above on **Race Conditions Detector**
+- `collection.setRaceFieldsToIgnore(['updatedAt'])`: Defines fields to be ignored by the race conditions detector, see section above on **Race Conditions Detector**
 
 ### Watchers API - See Watchers section above
 - `addToWatch(collectionName, channelName)`
