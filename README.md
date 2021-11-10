@@ -7,7 +7,7 @@
 
 ## First a Word of Thanks
 
-[Theo](https://github.com/theodorDiaconu) has done the community a great service with redis-oplog. It has become a cornerstone of any major deployment of Meteor. This clone is a major improvement for highly / infinitely scalable Meteor apps. It does have less features (no Vent or SyntheticEvent) as it is optimized for a specific use-case that the original redis-oplog failed to address. We understand we are not the target audience so are grateful for the starting point.
+[Theo](https://github.com/theodorDiaconu) has done the community a great service with redis-oplog. It has become a cornerstone of any major deployment of Meteor. This clone is a major improvement for highly / infinitely scalable Meteor apps. It does have less features (e.g. no SyntheticEvent) as it is optimized for a specific use-case that the original redis-oplog failed to address. We understand we are not the target audience so are grateful for the starting point.
 
 ## Problem Statement 
 We were facing three major issues with the original redis-oplog
@@ -18,7 +18,7 @@ We were facing three major issues with the original redis-oplog
 
 In addition, the code was becoming complex and hard to understand (with dead code and need for optimization). This is owing to many hands getting involved and its aim to cover as many use cases as possible. **Such an important building-block for us had to be easily maintainable**.
 
-## What we did
+## What We Did
 This version of redis-oplog is more streamlined:
 
 - Uses a single central timed cache at the collection-level, which is also the same place that provides data for `findOne` / `find` -- so full data consistency within the app
@@ -41,7 +41,7 @@ In other words, this is not a Swiss-Army knife, it is made for a very specific p
 - Faster updates (including to client) given fewer DB hits and less data sent to redis (and hence, the other meteor instances' load is reduced)
 - We substantially reduced the load on our DB instances -- from 80% to 7% on primary (secondaries went up a bit, which is fine as they were idle anyway)
 
-## Ideas for future improvements
+## Ideas for Future Improvements
 - Support external redis publisher [`oplogtoredis`](https://github.com/tulip/oplogtoredis). A separate section below talks about this.
 - Create formal Meteor package if there is interest by the community
 
@@ -132,11 +132,11 @@ You will get a warning in the console like this: `Redios-Oplog: Potential race c
 If you have fields that change often and you don't care about their value (e.g. `updatedAt`) you can disable race detection on these fields on the server at startup:
 `this.collection.setRaceFieldsToIgnore(['updatedAt'])`
 
-## Clearing fields -- $unset
+## Clearing Fields -- $unset
 
 When an `$unset` update is made, we send the fields to be cleared via Redis to the other Meteor instances. Furthermore, when we detect a `$set` of top-level field to `null` or `undefined`, we clear those fields too. This is to get around what many believe is a bug in Mongo; a null setter should be the same as `$unset`. Be careful if you are using strict equality with `null` (i.e. `=== null`) as it will fail in your application (not that you should, this is bad practice).
 
-## Setup & basic usage
+## Setup & Basic Usage
 
 **Notes:** 
 1. All setup is done server-side only, the following methods are not exposed client-side (nor should they be)
@@ -171,7 +171,7 @@ This is sample data from our production servers for the `users` collection -- **
 1. For **collections** for which you want to skip redis updates entirely (but you can still cache). This is useful for data that is needed for a given user only (in our case analytics collection) or large docs: `collection.disableRedis()`
 2. For specific **mutations**: `collection.[update,insert,remove,upsert](<selector>,<modifier>, {pushToRedis:false} )`
 
-### Collection-hooks
+### Collection-Hooks
 
 The package [collection-hooks](https://github.com/Meteor-Community-Packages/meteor-collection-hooks) is very popular as it allows you to call methods before / after DB calls. Unfortunately when caching a collection, this package causes collisions (as you may mutate DB-version of the doc, resulting in collision with cache). As such, we override the following methods to give you the same functionality as `collection-hooks` **only when the collection is cached - i.e. when you call `collection.startCaching()`**. Please refer to the original package for the signature of `cb` below:
 
@@ -187,7 +187,7 @@ collection.direct.<find, findOne, insert,update,remove>(cb)
 
 ## Advanced Features
 
-### Dynamic docs -- i.e. skipping DB write
+### Dynamic Docs -- i.e. skipping DB write
 
 ```
 collection.update(_id,{$set:{message:"Hello there!"}}, {skipDB:true} )
@@ -211,10 +211,9 @@ As mentioned, we do a diff vs the existing doc in the cache before we send out t
 > You can use skipDB and skipDiff together, there is no conflict
 
 
-### Watchers - i.e. server-server updates
+### Watchers - i.e. Server-Server Updates
 
-This is similar to Vents in the original `redis-oplog`. It allows updates to be sent to other Meteor instances directly. This is useful when
-the data loop is closed -- you don't have any potential for updates elsewhere.
+This is similar to Vents in the original `redis-oplog` (though the original [Vent](https://github.com/cult-of-coders/redis-oplog/blob/master/docs/vent.md) functionality is also present). It allows updates to be sent to other Meteor instances directly. This is useful when the data loop is closed -- you don't have any potential for updates elsewhere.
 
 Here is a complete example to illustrate (only relevant code shown):
 
