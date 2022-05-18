@@ -8,6 +8,7 @@ import { getRedisListener, getRedisPusher } from './lib/redis/getRedisClient'
 import ObservableCollection from './lib/cache/observableCollection'
 import { addToWatch, removeFromWatch } from './lib/redis/watchManager'
 import { dispatchUpdate, dispatchInsert, dispatchRemove } from './lib/redis/customPublish'
+import Vent from './lib/vent/Vent'
 
 const RedisOplog = {
   init
@@ -25,6 +26,7 @@ export {
   RedisPipe,
   Config,
   Events,
+  Vent,
   getRedisListener,
   getRedisPusher,
   addToWatch,
